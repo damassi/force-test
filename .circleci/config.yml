@@ -1,0 +1,302 @@
+version: 2.1
+
+orbs:
+  codecov: codecov/codecov@1.1.1
+  hokusai: artsy/hokusai@0.7.6
+  horizon: artsy/release@0.0.1
+  node: artsy/node@1.0.0
+  yarn: artsy/yarn@5.1.3
+  artsy-remote-docker: artsy/remote-docker@0.1.9
+
+jobs:
+  run_deepcrawl_automator:
+    docker:
+      - image: cimg/base:2020.10
+    environment:
+      AUTOMATOR_START_ONLY: true
+    steps:
+      - run:
+          name: Download automator script
+          command: curl https://raw.githubusercontent.com/deepcrawl/automator-sdk/master/ci.sh --output automator.sh
+      - run:
+          name: Start automator crawl
+          command: chmod +x automator.sh && ./automator.sh
+
+  validate_production_schema:
+    executor: node/build
+    steps:
+      - yarn/setup
+      - run:
+          name: Validate Production Schema
+          command: node scripts/validateSchemas.js production
+
+  create_or_update_review_app:
+    executor: hokusai/deploy
+    parameters:
+      artsy_docker_host:
+        type: string
+        default: docker.artsy.net
+      artsy_docker_port:
+        type: integer
+        default: 2376
+      artsy_s3_path_root:
+        type: string
+        default: artsy-citadel/docker
+    steps:
+      - hokusai/setup
+      - artsy-remote-docker/setup-artsy-remote-docker:
+          artsy_docker_host: << parameters.artsy_docker_host >>
+          artsy_docker_port: << parameters.artsy_docker_port >>
+          artsy_s3_path_root: << parameters.artsy_s3_path_root >>
+      - hokusai/install-aws-iam-authenticator
+      - hokusai/configure-hokusai
+      - run:
+          name: Install jq
+          command: curl -L https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 > /usr/local/bin/jq
+      - run:
+          name: Make jq executable
+          command: chmod u+x /usr/local/bin/jq
+      - run:
+          name: "Create or update review app"
+          command: |
+            review_app_name=$(echo $CIRCLE_BRANCH | sed 's/review-app-//')
+            kubectl config use-context staging
+            if $(kubectl get namespace | grep -qi $review_app_name); then
+              ./scripts/update_review_app.sh $review_app_name
+            else
+              ./scripts/build_review_app.sh $review_app_name
+            fi
+
+  mocha:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-builder
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    environment:
+      - NODE_ENV: test
+    steps:
+      - run: yarn test:ci:mocha
+
+  jest-v1:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-builder
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    environment:
+      - JEST_JUNIT_OUTPUT: reports/junit/js-test-results.xml
+    steps:
+      - run: yarn test:ci:jest:v1
+
+  jest-v2:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-builder
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    environment:
+      - JEST_JUNIT_OUTPUT: reports/junit/js-test-results.xml
+    steps:
+      - run: yarn test:ci:jest:v2
+
+  type-check:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-builder
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    environment:
+      - NODE_ENV: test
+    steps:
+      - run: yarn type-check
+
+  acceptance:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-electron-runner
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    steps:
+      - run: /app/scripts/xvfb-run.sh /usr/local/bin/yarn test:acceptance
+
+  acceptance-cypress:
+    docker:
+      - image: 585031190124.dkr.ecr.us-east-1.amazonaws.com/force:$CIRCLE_SHA1-electron-runner
+        aws_auth:
+          aws_access_key_id: $AWS_ACCESS_KEY_ID
+          aws_secret_access_key: $AWS_SECRET_ACCESS_KEY
+    working_directory: /app
+    steps:
+      - run: /app/scripts/xvfb-run.sh /usr/local/bin/yarn test:smoke
+
+not_master_or_staging_or_release: &not_master_or_staging_or_release
+  filters:
+    branches:
+      ignore:
+        - master
+        - staging
+        - release
+
+not_staging_or_release: &not_staging_or_release
+  filters:
+    branches:
+      ignore:
+        - staging
+        - release
+
+only_master: &only_master
+  context: hokusai
+  filters:
+    branches:
+      only: master
+
+only_release: &only_release
+  context: hokusai
+  filters:
+    branches:
+      only: release
+
+workflows:
+  default:
+    jobs:
+      # Main build
+      - artsy-remote-docker/buildkit-build:
+          <<: *not_staging_or_release
+          context: hokusai
+          name: builder-image-build
+          pre-steps:
+            - run:
+                command: echo 'export BUILD_TARGET="builder";' >> $BASH_ENV
+
+      - artsy-remote-docker/buildkit-push:
+          <<: *not_staging_or_release
+          context: hokusai
+          name: builder-image-push
+          requires:
+            - builder-image-build
+          pre-steps:
+            - run:
+                command: echo 'export BUILD_TARGET="builder";' >> $BASH_ENV
+
+      # Electron Runner build
+      - artsy-remote-docker/buildkit-build:
+          <<: *not_staging_or_release
+          context: hokusai
+          name: electron-runner-image-build
+          requires:
+            - builder-image-build
+          pre-steps:
+            - run:
+                command: echo 'export BUILD_TARGET="electron-runner";' >> $BASH_ENV
+
+      - artsy-remote-docker/buildkit-push:
+          <<: *not_staging_or_release
+          context: hokusai
+          name: electron-runner-image-push
+          requires:
+            - electron-runner-image-build
+          pre-steps:
+            - run:
+                command: echo 'export BUILD_TARGET="electron-runner";' >> $BASH_ENV
+
+      # Test steps
+      - mocha:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - builder-image-push
+
+      - jest-v1:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - builder-image-push
+
+      - jest-v2:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - builder-image-push
+
+      - type-check:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - builder-image-push
+
+      - acceptance:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - electron-runner-image-push
+
+      - acceptance-cypress:
+          <<: *not_staging_or_release
+          context: hokusai
+          requires:
+            - electron-runner-image-push
+
+      # Staging
+      - artsy-remote-docker/buildkit-build:
+          <<: *only_master
+          context: hokusai
+          name: production-image-build
+          requires:
+            - builder-image-build
+
+      - artsy-remote-docker/buildkit-push:
+          <<: *only_master
+          context: hokusai
+          name: production-image-push
+          requires:
+            - mocha
+            - jest-v1
+            - jest-v2
+            - type-check
+            - acceptance
+            - acceptance-cypress
+            - production-image-build
+
+      - hokusai/deploy-staging:
+          <<: *only_master
+          name: deploy-staging
+          project-name: force
+          requires:
+            - production-image-push
+
+      # Release
+      - horizon/block:
+          <<: *only_release
+          context: horizon
+          project_id: 11
+
+      - validate_production_schema:
+          <<: *only_release
+
+      - hokusai/deploy-production:
+          <<: *only_release
+          name: deploy-production
+          requires:
+            - horizon/block
+            - validate_production_schema
+
+      # Other
+      - run_deepcrawl_automator:
+          context: deepcrawl-automator
+          requires:
+            - deploy-production
+
+      - create_or_update_review_app:
+          context: hokusai
+          filters:
+            branches:
+              only: /^review-app-.*/
+          pre-steps:
+            - run:
+                command: echo 'export DOCKER_BUILDKIT=1; export BUILDKIT_PROGRESS=plain; export COMPOSE_DOCKER_CLI_BUILD=1;' >> $BASH_ENV

@@ -1,0 +1,52 @@
+.artifact
+.artifacts
+.cache
+.cache-loader
+.DS_Store
+.env
+.env.*
+.yalc
+*.csv
+*.dat
+*.DS_Store
+*.gz
+*.log
+*.out
+*.pid
+*.projectile
+*.seed
+dump.rdb
+lib-cov
+logs
+manifest.json
+npm-debug.log
+pids
+results
+yalc.lock
+
+/dist
+/node_modules
+/public
+/src/desktop/public/assets
+/src/mobile/public/assets
+node_modules
+
+# Compiled server code
+server.dist.js
+server.dist.js.map
+
+# Test utils
+coverage*
+cypress/screenshots
+.nyc_output
+reports*
+junit.xml
+cypress/videos
+
+# Diagnostic reports (https://nodejs.org/api/report.html)
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# next.js
+/.next/
+/out/
+.vercel

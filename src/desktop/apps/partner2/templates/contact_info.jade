@@ -1,0 +1,3 @@
+if partner.has('website')
+  .contact-website
+    a.partner2-website( data-partner-id=partner.get('_id'), data-partner-slug=partner.get('id') href=partner.get('website'), target='_blank' )= partner.getSimpleWebsite()
