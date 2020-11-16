@@ -1,14 +1,13 @@
 import { RelayEnvironmentProvider } from "relay-hooks"
-import { createEnvironment } from "../next/createEnvironment"
+import { createEnvironment } from "next/lib/createEnvironment"
 import { Grid, Theme, injectGlobalStyles, themeProps } from "@artsy/palette"
 import { SystemContextProvider, track } from "v2/Artsy"
 import { ErrorBoundary } from "v2/Artsy/Router/ErrorBoundary"
 import { AnalyticsContext } from "v2/Artsy/Analytics/AnalyticsContext"
 import { MediaContextProvider, ResponsiveProvider } from "v2/Utils/Responsive"
 import { FocusVisible } from "v2/Components/FocusVisible"
-import { HeadProvider } from "react-head"
 import Events from "v2/Utils/Events"
-import { NextAppShell } from "next/createEnvironment/AppShell"
+import { NextAppShell } from "next/components/AppShell"
 
 const { GlobalStyles } = injectGlobalStyles()
 

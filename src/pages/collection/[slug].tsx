@@ -1,4 +1,4 @@
-import { initEnvironment } from "next/createEnvironment"
+import { initEnvironment } from "next/lib/createEnvironment"
 import { fetchQuery, graphql } from "react-relay"
 import { useQuery } from "relay-hooks"
 import { useRouter } from "next/router"
